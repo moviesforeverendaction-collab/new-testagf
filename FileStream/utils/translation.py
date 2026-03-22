@@ -1,7 +1,24 @@
+import inspect
 import re
-from pyrogram.enums import ButtonStyle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from FileStream.config import Telegram
+
+try:
+    from pyrogram.enums import ButtonStyle as _PyrogramButtonStyle
+except ImportError:
+    _PyrogramButtonStyle = None
+
+
+class ButtonStyle:
+    DEFAULT = getattr(_PyrogramButtonStyle, "DEFAULT", None)
+    PRIMARY = getattr(_PyrogramButtonStyle, "PRIMARY", None)
+    DANGER = getattr(_PyrogramButtonStyle, "DANGER", None)
+    SUCCESS = getattr(_PyrogramButtonStyle, "SUCCESS", None)
+
+
+INLINE_BUTTON_PARAMS = inspect.signature(InlineKeyboardButton.__init__).parameters
+SUPPORTS_BUTTON_STYLE = "style" in INLINE_BUTTON_PARAMS and _PyrogramButtonStyle is not None
+SUPPORTS_ICON_CUSTOM_EMOJI = "icon_custom_emoji_id" in INLINE_BUTTON_PARAMS
 
 
 def tg_emoji(emoji_id: str, fallback: str) -> str:
@@ -23,12 +40,17 @@ def styled_button(
     style: ButtonStyle = ButtonStyle.DEFAULT,
 ) -> InlineKeyboardButton:
     icon_id = icon_custom_emoji_id or (emoji_id(icon_markup) if icon_markup else None)
-    return InlineKeyboardButton(
+    kwargs = dict(
         text=text,
         callback_data=callback_data,
         url=url,
-        icon_custom_emoji_id=icon_id,
-        style=style,
+    )
+    if SUPPORTS_ICON_CUSTOM_EMOJI and icon_id is not None:
+        kwargs["icon_custom_emoji_id"] = icon_id
+    if SUPPORTS_BUTTON_STYLE and style is not None:
+        kwargs["style"] = style
+    return InlineKeyboardButton(
+        **kwargs,
     )
 
 

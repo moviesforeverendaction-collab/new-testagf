@@ -3,12 +3,11 @@ import math
 from FileStream import __version__
 from FileStream.bot import FileStream
 from FileStream.config import Telegram, Server
-from FileStream.utils.translation import LANG, BUTTON, EMOJI, styled_button
+from FileStream.utils.translation import LANG, BUTTON, EMOJI, styled_button, ButtonStyle
 from FileStream.utils.bot_utils import gen_link
 from FileStream.utils.database import Database
 from FileStream.utils.human_readable import humanbytes
 from FileStream.exceptions import FIleNotFound
-from pyrogram.enums import ButtonStyle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyrogram.file_id import FileId, FileType, PHOTO_TYPES
 from pyrogram.enums.parse_mode import ParseMode

@@ -1,5 +1,6 @@
 import sys
 import asyncio
+import contextlib
 import logging
 import traceback
 import logging.handlers as handlers
@@ -71,7 +72,8 @@ async def start_services():
 
 async def cleanup():
     await server.cleanup()
-    await FileStream.stop()
+    with contextlib.suppress(ConnectionError):
+        await FileStream.stop()
 
 if __name__ == "__main__":
     try:

@@ -1,8 +1,7 @@
 from pyrogram.errors import UserNotParticipant, FloodWait
 from pyrogram.enums.parse_mode import ParseMode
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
-from pyrogram.enums import ButtonStyle
-from FileStream.utils.translation import LANG, EMOJI, styled_button
+from FileStream.utils.translation import LANG, EMOJI, styled_button, ButtonStyle
 from FileStream.utils.database import Database
 from FileStream.utils.human_readable import humanbytes
 from FileStream.config import Telegram, Server
