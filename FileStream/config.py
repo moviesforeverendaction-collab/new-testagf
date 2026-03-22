@@ -18,8 +18,8 @@ def _get_optional_int_env(name: str) -> int | None:
     return int(value)
 
 
-CPU_COUNT = cpu_count() or 15
-DEFAULT_WORKERS = max(32, CPU_COUNT * 15)
+CPU_COUNT = cpu_count() or 4
+DEFAULT_WORKERS = max(32, min(CPU_COUNT * 2, 128))
 TELEGRAM_MAX_STREAM_CHUNK = 1024 * 1024
 
 class Telegram:
@@ -53,7 +53,9 @@ class Server:
         64 * 1024,
         min(_get_int_env("STREAM_CHUNK_SIZE", TELEGRAM_MAX_STREAM_CHUNK), TELEGRAM_MAX_STREAM_CHUNK),
     )
-    STREAM_PREFETCH = max(8, _get_int_env("STREAM_PREFETCH", max(16, CPU_COUNT * 4)))
+    STREAM_PREFETCH = max(2, _get_int_env("STREAM_PREFETCH", min(max(CPU_COUNT // 4, 4), 8)))
+    MEDIA_SESSION_POOL_SIZE = max(1, _get_int_env("MEDIA_SESSION_POOL_SIZE", min(max(CPU_COUNT // 8, 2), 4)))
+    STREAM_MAX_RETRIES = max(1, _get_int_env("STREAM_MAX_RETRIES", 2))
     FILE_ID_CACHE_TTL = max(30 * 60, _get_int_env("FILE_ID_CACHE_TTL", 24 * 60 * 60))
     TCP_BACKLOG = max(1024, _get_int_env("TCP_BACKLOG", 8192))
     REQUEST_MAX_SIZE = max(30_000_000, _get_int_env("REQUEST_MAX_SIZE", 2 * 1024 * 1024 * 1024))

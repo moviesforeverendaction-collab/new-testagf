@@ -63,8 +63,39 @@ async def stream_handler(request: web.Request):
 
 class_cache = {}
 
+
+def _parse_range_header(range_header: str | None, file_size: int) -> tuple[int, int]:
+    if not range_header:
+        return 0, file_size - 1
+
+    try:
+        units, _, value = range_header.partition("=")
+        if units.strip().lower() != "bytes" or not value or "," in value:
+            raise ValueError("Unsupported range header")
+
+        start_str, end_str = value.split("-", 1)
+        start_str = start_str.strip()
+        end_str = end_str.strip()
+
+        if not start_str and not end_str:
+            raise ValueError("Invalid range header")
+
+        if not start_str:
+            length = int(end_str)
+            if length <= 0:
+                raise ValueError("Invalid suffix range")
+            return max(file_size - length, 0), file_size - 1
+
+        from_bytes = int(start_str)
+        until_bytes = int(end_str) if end_str else file_size - 1
+        return from_bytes, until_bytes
+    except (TypeError, ValueError):
+        raise web.HTTPRequestRangeNotSatisfiable(
+            headers={"Content-Range": f"bytes */{file_size}"}
+        )
+
 async def media_streamer(request: web.Request, db_id: str):
-    range_header = request.headers.get("Range", 0)
+    range_header = request.headers.get("Range")
     
     index = min(work_loads, key=work_loads.get)
     faster_client = multi_clients[index]
@@ -85,13 +116,7 @@ async def media_streamer(request: web.Request, db_id: str):
     
     file_size = file_id.file_size
 
-    if range_header:
-        from_bytes, until_bytes = range_header.replace("bytes=", "").split("-")
-        from_bytes = int(from_bytes)
-        until_bytes = int(until_bytes) if until_bytes else file_size - 1
-    else:
-        from_bytes = request.http_range.start or 0
-        until_bytes = (request.http_range.stop or file_size) - 1
+    from_bytes, until_bytes = _parse_range_header(range_header, file_size)
 
     if (until_bytes > file_size) or (from_bytes < 0) or (until_bytes < from_bytes):
         return web.Response(
@@ -109,9 +134,6 @@ async def media_streamer(request: web.Request, db_id: str):
 
     req_length = until_bytes - from_bytes + 1
     part_count = math.floor(until_bytes / chunk_size) - math.floor(offset / chunk_size) + 1
-    body = tg_connect.yield_file(
-        file_id, index, offset, first_part_cut, last_part_cut, part_count, chunk_size
-    )
 
     mime_type = file_id.mime_type
     file_name = utils.get_name(file_id)
@@ -123,14 +145,34 @@ async def media_streamer(request: web.Request, db_id: str):
     # if "video/" in mime_type or "audio/" in mime_type:
     #     disposition = "inline"
 
+    headers = {
+        "Content-Type": f"{mime_type}",
+        "Content-Range": f"bytes {from_bytes}-{until_bytes}/{file_size}",
+        "Content-Length": str(req_length),
+        "Content-Disposition": f'{disposition}; filename="{file_name}"',
+        "Accept-Ranges": "bytes",
+    }
+
+    if request.method == "HEAD":
+        return web.Response(
+            status=206 if range_header else 200,
+            headers=headers,
+        )
+
+    body = tg_connect.yield_file(
+        db_id,
+        multi_clients,
+        file_id,
+        index,
+        offset,
+        first_part_cut,
+        last_part_cut,
+        part_count,
+        chunk_size,
+    )
+
     return web.Response(
         status=206 if range_header else 200,
         body=body,
-        headers={
-            "Content-Type": f"{mime_type}",
-            "Content-Range": f"bytes {from_bytes}-{until_bytes}/{file_size}",
-            "Content-Length": str(req_length),
-            "Content-Disposition": f'{disposition}; filename="{file_name}"',
-            "Accept-Ranges": "bytes",
-        },
+        headers=headers,
     )

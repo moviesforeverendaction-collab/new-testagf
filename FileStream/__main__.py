@@ -65,6 +65,8 @@ async def start_services():
     print("                    Workers =>> {}".format(Telegram.WORKERS))
     print("               Stream Chunk =>> {} bytes".format(Server.STREAM_CHUNK_SIZE))
     print("            Stream Prefetch =>> {}".format(Server.STREAM_PREFETCH))
+    print("       Media Sessions/DC =>> {}".format(Server.MEDIA_SESSION_POOL_SIZE))
+    print("         Stream Retries =>> {}".format(Server.STREAM_MAX_RETRIES))
     print("              Cache TTL =>> {} sec".format(Server.FILE_ID_CACHE_TTL))
     print(" URL =>> {}".format(Server.URL))
     print("------------------------------------------------------------------")

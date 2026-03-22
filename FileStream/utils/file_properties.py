@@ -14,36 +14,70 @@ from FileStream.config import Telegram, Server
 db = Database(Telegram.DATABASE_URL, Telegram.SESSION_NAME)
 
 
-async def get_file_ids(client: Client | bool, db_id: str, multi_clients, message) -> Optional[FileId]:
+def _attach_file_metadata(file_id: FileId, file_info: dict) -> FileId:
+    setattr(file_id, "file_size", file_info["file_size"])
+    setattr(file_id, "mime_type", file_info["mime_type"])
+    setattr(file_id, "file_name", file_info["file_name"])
+    setattr(file_id, "unique_id", file_info["file_unique_id"])
+    return file_id
+
+
+def _can_use_source_file_id(client: Client, multi_clients) -> bool:
+    return len(multi_clients) <= 1 or getattr(client, "id", None) == getattr(FileStream, "id", None)
+
+
+async def get_file_ids(
+    client: Client | bool,
+    db_id: str,
+    multi_clients,
+    message: Message | None = None,
+    force_refresh: bool = False,
+) -> Optional[FileId]:
     logging.debug("Starting of get_file_ids")
     file_info = await db.get_file(db_id)
-    if (not "file_ids" in file_info) or not client:
-        logging.debug("Storing file_id of all clients in DB")
-        log_msg = await send_file(FileStream, db_id, file_info['file_id'], message)
-        await db.update_file_ids(db_id, await update_file_id(log_msg.id, multi_clients))
-        logging.debug("Stored file_id of all clients in DB")
-        if not client:
-            return
-        file_info = await db.get_file(db_id)
+    if not client:
+        if force_refresh or ("file_ids" not in file_info):
+            logging.debug("Storing file_id of all clients in DB")
+            refreshed_file_ids = await refresh_file_ids(db_id, file_info, multi_clients, message)
+            await db.update_file_ids(db_id, refreshed_file_ids)
+            logging.debug("Stored file_id of all clients in DB")
+        return None
 
-    file_id_info = file_info.setdefault("file_ids", {})
-    if not str(client.id) in file_id_info:
-        logging.debug("Storing file_id in DB")
-        log_msg = await send_file(FileStream, db_id, file_info['file_id'], message)
-        msg = await client.get_messages(Telegram.FLOG_CHANNEL, log_msg.id)
-        media = get_media_from_message(msg)
-        file_id_info[str(client.id)] = getattr(media, "file_id", "")
-        await db.update_file_ids(db_id, file_id_info)
-        logging.debug("Stored file_id in DB")
+    file_id_info = file_info.get("file_ids", {})
+    client_file_id = file_id_info.get(str(client.id))
+
+    if client_file_id and not force_refresh:
+        logging.debug("Using cached client-specific file_id")
+        return _attach_file_metadata(FileId.decode(client_file_id), file_info)
+
+    if not force_refresh:
+        original_file_id = file_info.get("file_id")
+        if original_file_id and _can_use_source_file_id(client, multi_clients):
+            logging.debug("Using stored source file_id for streaming")
+            return _attach_file_metadata(FileId.decode(original_file_id), file_info)
+
+    logging.debug("Refreshing file_id for client")
+    refreshed_file_ids = await refresh_file_ids(db_id, file_info, multi_clients, message)
+    await db.update_file_ids(db_id, refreshed_file_ids)
+    file_id_info = refreshed_file_ids
+
+    client_file_id = file_id_info.get(str(client.id))
+    if not client_file_id and _can_use_source_file_id(client, multi_clients):
+        client_file_id = file_info.get("file_id")
+    if not client_file_id:
+        return None
 
     logging.debug("Middle of get_file_ids")
-    file_id = FileId.decode(file_id_info[str(client.id)])
-    setattr(file_id, "file_size", file_info['file_size'])
-    setattr(file_id, "mime_type", file_info['mime_type'])
-    setattr(file_id, "file_name", file_info['file_name'])
-    setattr(file_id, "unique_id", file_info['file_unique_id'])
+    file_id = _attach_file_metadata(FileId.decode(client_file_id), file_info)
     logging.debug("Ending of get_file_ids")
     return file_id
+
+
+async def refresh_file_ids(db_id: str, file_info: dict, multi_clients, message: Message | None = None) -> dict:
+    if Telegram.FLOG_CHANNEL is None:
+        return file_info.get("file_ids", {})
+    log_msg = await send_file(FileStream, db_id, file_info["file_id"], message, file_info)
+    return await update_file_id(log_msg.id, multi_clients)
 
 
 def get_media_from_message(message: "Message") -> Any:
@@ -125,10 +159,16 @@ async def update_file_id(msg_id, multi_clients):
     return file_ids
 
 
-async def send_file(client: Client, db_id, file_id: str, message):
-    file_caption = getattr(message, 'caption', None) or get_name(message)
+async def send_file(client: Client, db_id, file_id: str, message: Message | None = None, file_info: dict | None = None):
+    if isinstance(message, Message):
+        file_caption = getattr(message, "caption", None) or get_name(message)
+    else:
+        file_caption = (file_info or {}).get("file_name") or "File"
     log_msg = await client.send_cached_media(chat_id=Telegram.FLOG_CHANNEL, file_id=file_id,
                                              caption=f'**{file_caption}**')
+
+    if not isinstance(message, Message):
+        return log_msg
 
     if message.chat.type == ChatType.PRIVATE:
         await log_msg.reply_text(
@@ -141,4 +181,3 @@ async def send_file(client: Client, db_id, file_id: str, message):
 
     return log_msg
     # return await client.send_cached_media(Telegram.BIN_CHANNEL, file_id)
-

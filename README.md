@@ -152,9 +152,11 @@ PORT = 8080
 * `FILE_PIC`: To set Image at `/files` command. Defaults to pre-set image. `str`
 * `START_PIC`: To set Image at `/start` command. Defaults to pre-set image. `str`
 * `VERIFY_PIC`: To set Image at Force Sub Verification. Defaults to pre-set image. `str`
-* `WORKERS`: Number of maximum concurrent workers for handling incoming updates. Defaults aggressively to `max(32, CPU_COUNT * 4)`. `int`
+* `WORKERS`: Number of maximum concurrent workers for handling incoming updates. Defaults to `max(32, min(CPU_COUNT * 2, 128))`. `int`
 * `STREAM_CHUNK_SIZE`: Telegram streaming chunk size in bytes. The code clamps it to Telegram's `1 MiB` protocol limit, so `1048576` is the maximum effective value. `int`
-* `STREAM_PREFETCH`: Number of sequential Telegram chunks to keep in flight per request. Defaults aggressively to `max(16, CPU_COUNT * 2)`. `int`
+* `STREAM_PREFETCH`: Number of sequential Telegram chunks to keep queued per request. Defaults to `min(max(CPU_COUNT // 4, 4), 8)` for stability on a single bot, and effective parallelism is capped by `MEDIA_SESSION_POOL_SIZE`. `int`
+* `MEDIA_SESSION_POOL_SIZE`: Number of Telegram media sessions to keep per DC for streaming. Defaults to `min(max(CPU_COUNT // 8, 2), 4)`. `int`
+* `STREAM_MAX_RETRIES`: Number of retry attempts after expired file references or transient stream errors. Defaults to `2`. `int`
 * `FILE_ID_CACHE_TTL`: How long cached file metadata stays in memory before cleanup. Defaults to `86400` seconds. `int`
 * `TCP_BACKLOG`: Pending TCP connection backlog for the web server. Defaults to `8192`. `int`
 * `REQUEST_MAX_SIZE`: Maximum accepted aiohttp request size. Defaults to `2147483648` bytes. `int`
