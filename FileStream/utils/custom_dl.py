@@ -17,6 +17,8 @@ class ByteStreamer:
         self.clean_timer = Server.FILE_ID_CACHE_TTL
         self.client: Client = client
         self.cached_file_ids: Dict[str, FileId] = {}
+        self.media_session_pools: dict[int, list[Session]] = {}
+        self.media_session_locks: dict[int, asyncio.Lock] = {}
         asyncio.create_task(self.clean_cache())
 
     async def get_file_properties(self, db_id: str, multi_clients) -> FileId:
@@ -43,62 +45,95 @@ class ByteStreamer:
         logging.debug(f"Cached media file with ID {db_id}")
         return self.cached_file_ids[db_id]
 
-    async def generate_media_session(self, client: Client, file_id: FileId) -> Session:
+    def _get_media_session_lock(self, dc_id: int) -> asyncio.Lock:
+        if dc_id not in self.media_session_locks:
+            self.media_session_locks[dc_id] = asyncio.Lock()
+        return self.media_session_locks[dc_id]
+
+    async def _create_media_session(self, client: Client, file_id: FileId) -> Session:
         """
-        Generates the media session for the DC that contains the media file.
+        Generates a media session for the DC that contains the media file.
         This is required for getting the bytes from Telegram servers.
         """
+        if file_id.dc_id != await client.storage.dc_id():
+            media_session = Session(
+                client,
+                file_id.dc_id,
+                await Auth(
+                    client, file_id.dc_id, await client.storage.test_mode()
+                ).create(),
+                await client.storage.test_mode(),
+                is_media=True,
+            )
+            await media_session.start()
 
-        media_session = client.media_sessions.get(file_id.dc_id, None)
-
-        if media_session is None:
-            if file_id.dc_id != await client.storage.dc_id():
-                media_session = Session(
-                    client,
-                    file_id.dc_id,
-                    await Auth(
-                        client, file_id.dc_id, await client.storage.test_mode()
-                    ).create(),
-                    await client.storage.test_mode(),
-                    is_media=True,
+            for _ in range(6):
+                exported_auth = await client.invoke(
+                    raw.functions.auth.ExportAuthorization(dc_id=file_id.dc_id)
                 )
-                await media_session.start()
 
-                for _ in range(6):
-                    exported_auth = await client.invoke(
-                        raw.functions.auth.ExportAuthorization(dc_id=file_id.dc_id)
+                try:
+                    await media_session.invoke(
+                        raw.functions.auth.ImportAuthorization(
+                            id=exported_auth.id, bytes=exported_auth.bytes
+                        )
                     )
-
-                    try:
-                        await media_session.invoke(
-                            raw.functions.auth.ImportAuthorization(
-                                id=exported_auth.id, bytes=exported_auth.bytes
-                            )
-                        )
-                        break
-                    except AuthBytesInvalid:
-                        logging.debug(
-                            f"Invalid authorization bytes for DC {file_id.dc_id}"
-                        )
-                        continue
-                else:
-                    await media_session.stop()
-                    raise AuthBytesInvalid
+                    break
+                except AuthBytesInvalid:
+                    logging.debug(
+                        f"Invalid authorization bytes for DC {file_id.dc_id}"
+                    )
+                    continue
             else:
-                media_session = Session(
-                    client,
-                    file_id.dc_id,
-                    await client.storage.auth_key(),
-                    await client.storage.test_mode(),
-                    is_media=True,
-                )
-                await media_session.start()
-            logging.debug(f"Created media session for DC {file_id.dc_id}")
-            client.media_sessions[file_id.dc_id] = media_session
+                await media_session.stop()
+                raise AuthBytesInvalid
         else:
-            logging.debug(f"Using cached media session for DC {file_id.dc_id}")
+            media_session = Session(
+                client,
+                file_id.dc_id,
+                await client.storage.auth_key(),
+                await client.storage.test_mode(),
+                is_media=True,
+            )
+            await media_session.start()
+        logging.debug(f"Created media session for DC {file_id.dc_id}")
         return media_session
 
+    async def generate_media_sessions(self, client: Client, file_id: FileId) -> list[Session]:
+        """
+        Creates and caches a pool of media sessions for the target DC so a single
+        bot can keep multiple Telegram file requests in flight at once.
+        """
+        dc_id = file_id.dc_id
+        media_sessions = self.media_session_pools.get(dc_id)
+
+        if media_sessions:
+            logging.debug(f"Using cached media session pool for DC {dc_id}")
+            return media_sessions
+
+        async with self._get_media_session_lock(dc_id):
+            media_sessions = self.media_session_pools.get(dc_id)
+            if media_sessions:
+                logging.debug(f"Using cached media session pool for DC {dc_id}")
+                return media_sessions
+
+            media_sessions = []
+            cached_session = client.media_sessions.get(dc_id)
+
+            if cached_session is None:
+                cached_session = await self._create_media_session(client, file_id)
+                client.media_sessions[dc_id] = cached_session
+
+            media_sessions.append(cached_session)
+
+            while len(media_sessions) < Server.MEDIA_SESSION_POOL_SIZE:
+                media_sessions.append(await self._create_media_session(client, file_id))
+
+            self.media_session_pools[dc_id] = media_sessions
+            logging.debug(
+                f"Created media session pool with {len(media_sessions)} sessions for DC {dc_id}"
+            )
+            return media_sessions
 
     @staticmethod
     async def get_location(file_id: FileId) -> Union[raw.types.InputPhotoFileLocation,
@@ -163,19 +198,25 @@ class ByteStreamer:
         client = self.client
         work_loads[index] += 1
         logging.debug(f"Starting to yielding file with client {index}.")
-        media_session = await self.generate_media_session(client, file_id)
+        media_sessions = await self.generate_media_sessions(client, file_id)
 
         current_part = 1
         location = await self.get_location(file_id)
         pending_chunks = deque()
         next_offset = offset
         scheduled_parts = 0
+        session_count = len(media_sessions)
 
         try:
             while scheduled_parts < min(Server.STREAM_PREFETCH, part_count):
                 pending_chunks.append(
                     asyncio.create_task(
-                        self._get_file_chunk(media_session, location, next_offset, chunk_size)
+                        self._get_file_chunk(
+                            media_sessions[scheduled_parts % session_count],
+                            location,
+                            next_offset,
+                            chunk_size,
+                        )
                     )
                 )
                 next_offset += chunk_size
@@ -187,7 +228,12 @@ class ByteStreamer:
                 if scheduled_parts < part_count:
                     pending_chunks.append(
                         asyncio.create_task(
-                            self._get_file_chunk(media_session, location, next_offset, chunk_size)
+                            self._get_file_chunk(
+                                media_sessions[scheduled_parts % session_count],
+                                location,
+                                next_offset,
+                                chunk_size,
+                            )
                         )
                     )
                     next_offset += chunk_size

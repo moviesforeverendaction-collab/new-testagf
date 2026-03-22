@@ -109,9 +109,6 @@ async def media_streamer(request: web.Request, db_id: str):
 
     req_length = until_bytes - from_bytes + 1
     part_count = math.floor(until_bytes / chunk_size) - math.floor(offset / chunk_size) + 1
-    body = tg_connect.yield_file(
-        file_id, index, offset, first_part_cut, last_part_cut, part_count, chunk_size
-    )
 
     mime_type = file_id.mime_type
     file_name = utils.get_name(file_id)
@@ -123,14 +120,26 @@ async def media_streamer(request: web.Request, db_id: str):
     # if "video/" in mime_type or "audio/" in mime_type:
     #     disposition = "inline"
 
+    headers = {
+        "Content-Type": f"{mime_type}",
+        "Content-Range": f"bytes {from_bytes}-{until_bytes}/{file_size}",
+        "Content-Length": str(req_length),
+        "Content-Disposition": f'{disposition}; filename="{file_name}"',
+        "Accept-Ranges": "bytes",
+    }
+
+    if request.method == "HEAD":
+        return web.Response(
+            status=206 if range_header else 200,
+            headers=headers,
+        )
+
+    body = tg_connect.yield_file(
+        file_id, index, offset, first_part_cut, last_part_cut, part_count, chunk_size
+    )
+
     return web.Response(
         status=206 if range_header else 200,
         body=body,
-        headers={
-            "Content-Type": f"{mime_type}",
-            "Content-Range": f"bytes {from_bytes}-{until_bytes}/{file_size}",
-            "Content-Length": str(req_length),
-            "Content-Disposition": f'{disposition}; filename="{file_name}"',
-            "Accept-Ranges": "bytes",
-        },
+        headers=headers,
     )

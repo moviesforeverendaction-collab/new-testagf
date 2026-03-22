@@ -19,8 +19,10 @@ def _get_optional_int_env(name: str) -> int | None:
 
 
 CPU_COUNT = cpu_count() or 4
-DEFAULT_WORKERS = max(8, min(CPU_COUNT, 32))
+DEFAULT_WORKERS = max(32, CPU_COUNT * 4)
 TELEGRAM_MAX_STREAM_CHUNK = 1024 * 1024
+DEFAULT_STREAM_PREFETCH = max(32, CPU_COUNT * 4)
+DEFAULT_MEDIA_SESSION_POOL_SIZE = max(8, min(CPU_COUNT, 16))
 
 class Telegram:
     API_ID = int(env.get("API_ID"))
@@ -53,10 +55,11 @@ class Server:
         64 * 1024,
         min(_get_int_env("STREAM_CHUNK_SIZE", TELEGRAM_MAX_STREAM_CHUNK), TELEGRAM_MAX_STREAM_CHUNK),
     )
-    STREAM_PREFETCH = max(1, min(_get_int_env("STREAM_PREFETCH", 4), 16))
-    FILE_ID_CACHE_TTL = max(30 * 60, _get_int_env("FILE_ID_CACHE_TTL", 6 * 60 * 60))
-    TCP_BACKLOG = max(128, _get_int_env("TCP_BACKLOG", 2048))
-    REQUEST_MAX_SIZE = max(30_000_000, _get_int_env("REQUEST_MAX_SIZE", 512 * 1024 * 1024))
+    STREAM_PREFETCH = max(16, _get_int_env("STREAM_PREFETCH", DEFAULT_STREAM_PREFETCH))
+    MEDIA_SESSION_POOL_SIZE = max(1, _get_int_env("MEDIA_SESSION_POOL_SIZE", DEFAULT_MEDIA_SESSION_POOL_SIZE))
+    FILE_ID_CACHE_TTL = max(30 * 60, _get_int_env("FILE_ID_CACHE_TTL", 24 * 60 * 60))
+    TCP_BACKLOG = max(1024, _get_int_env("TCP_BACKLOG", 8192))
+    REQUEST_MAX_SIZE = max(30_000_000, _get_int_env("REQUEST_MAX_SIZE", 2 * 1024 * 1024 * 1024))
     HAS_SSL = str(env.get("HAS_SSL", "0").lower()) in ("1", "true", "t", "yes", "y")
     NO_PORT = str(env.get("NO_PORT", "0").lower()) in ("1", "true", "t", "yes", "y")
     FQDN = str(env.get("FQDN", BIND_ADDRESS))
