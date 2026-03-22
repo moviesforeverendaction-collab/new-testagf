@@ -11,6 +11,13 @@ def _get_int_env(name: str, default: int) -> int:
     return int(value)
 
 
+def _get_optional_int_env(name: str) -> int | None:
+    value = env.get(name)
+    if value in (None, ""):
+        return None
+    return int(value)
+
+
 CPU_COUNT = cpu_count() or 4
 DEFAULT_WORKERS = max(8, min(CPU_COUNT, 32))
 TELEGRAM_MAX_STREAM_CHUNK = 1024 * 1024
@@ -32,8 +39,8 @@ class Telegram:
     START_PIC = env.get('START_PIC', "https://graph.org/file/290af25276fa34fa8f0aa.jpg")
     VERIFY_PIC = env.get('VERIFY_PIC', "https://graph.org/file/736e21cc0efa4d8c2a0e4.jpg")
     MULTI_CLIENT = False
-    FLOG_CHANNEL = int(env.get("FLOG_CHANNEL", None))   # Logs channel for file logs
-    ULOG_CHANNEL = int(env.get("ULOG_CHANNEL", None))   # Logs channel for user logs
+    FLOG_CHANNEL = _get_optional_int_env("FLOG_CHANNEL")   # Logs channel for file logs
+    ULOG_CHANNEL = _get_optional_int_env("ULOG_CHANNEL")   # Logs channel for user logs
     MODE = env.get("MODE", "primary")
     SECONDARY = True if MODE.lower() == "secondary" else False
     AUTH_USERS = list(set(int(x) for x in str(env.get("AUTH_USERS", "")).split()))
@@ -56,4 +63,3 @@ class Server:
     URL = "http{}://{}{}/".format(
         "s" if HAS_SSL else "", FQDN, "" if NO_PORT else ":" + str(PORT)
     )
-

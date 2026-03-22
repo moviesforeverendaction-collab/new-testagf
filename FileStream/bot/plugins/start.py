@@ -2,7 +2,7 @@ import logging
 import math
 from FileStream import __version__
 from FileStream.bot import FileStream
-from FileStream.server.exceptions import FIleNotFound
+from FileStream.exceptions import FIleNotFound
 from FileStream.utils.bot_utils import gen_linkx, verify_user
 from FileStream.config import Telegram
 from FileStream.utils.database import Database
@@ -139,4 +139,3 @@ async def my_files(bot: Client, message: Message):
                               caption=f"{EMOJI.stats} <b>Total files:</b> <code>{total_files}</code>",
                               parse_mode=ParseMode.HTML,
                               reply_markup=InlineKeyboardMarkup(file_list))
-
