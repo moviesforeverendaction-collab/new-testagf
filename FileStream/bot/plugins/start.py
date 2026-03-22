@@ -118,20 +118,20 @@ async def my_files(bot: Client, message: Message):
                 x["file_name"],
                 callback_data=f"myfile_{x['_id']}_{1}",
                 icon_markup=EMOJI.view,
-                style=ButtonStyle.DEFAULT,
+                style=ButtonStyle.PRIMARY,
             )
         ])
     if total_files > 10:
         file_list.append(
             [
-                styled_button("◄", callback_data="N/A", icon_markup=EMOJI.round, style=ButtonStyle.DEFAULT),
-                styled_button(f"1/{math.ceil(total_files / 10)}", callback_data="N/A", icon_markup=EMOJI.status, style=ButtonStyle.DEFAULT),
-                styled_button("►", callback_data="userfiles_2", icon_markup=EMOJI.round, style=ButtonStyle.DEFAULT)
+                styled_button("◄", callback_data="N/A", icon_markup=EMOJI.round, style=ButtonStyle.PRIMARY),
+                styled_button(f"1/{math.ceil(total_files / 10)}", callback_data="N/A", icon_markup=EMOJI.status, style=ButtonStyle.PRIMARY),
+                styled_button("►", callback_data="userfiles_2", icon_markup=EMOJI.round, style=ButtonStyle.PRIMARY)
             ],
         )
     if not file_list:
         file_list.append(
-            [styled_button("Eᴍᴘᴛʏ", callback_data="N/A", icon_markup=EMOJI.empty, style=ButtonStyle.DEFAULT)],
+            [styled_button("Eᴍᴘᴛʏ", callback_data="N/A", icon_markup=EMOJI.empty, style=ButtonStyle.PRIMARY)],
         )
     file_list.append([styled_button("Cʟᴏsᴇ", callback_data="close", icon_markup=EMOJI.cancel, style=ButtonStyle.DANGER)])
     await message.reply_photo(photo=Telegram.FILE_PIC,

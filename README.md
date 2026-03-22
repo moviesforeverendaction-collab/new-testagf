@@ -154,8 +154,7 @@ PORT = 8080
 * `VERIFY_PIC`: To set Image at Force Sub Verification. Defaults to pre-set image. `str`
 * `WORKERS`: Number of maximum concurrent workers for handling incoming updates. Defaults aggressively to `max(32, CPU_COUNT * 4)`. `int`
 * `STREAM_CHUNK_SIZE`: Telegram streaming chunk size in bytes. The code clamps it to Telegram's `1 MiB` protocol limit, so `1048576` is the maximum effective value. `int`
-* `STREAM_PREFETCH`: Number of sequential Telegram chunks to keep in flight per request. Defaults aggressively to `max(32, CPU_COUNT * 4)`. `int`
-* `MEDIA_SESSION_POOL_SIZE`: Number of parallel Telegram media sessions to open per DC for a single bot client. Defaults aggressively to `max(8, min(CPU_COUNT, 16))`. `int`
+* `STREAM_PREFETCH`: Number of sequential Telegram chunks to keep in flight per request. Defaults aggressively to `max(16, CPU_COUNT * 2)`. `int`
 * `FILE_ID_CACHE_TTL`: How long cached file metadata stays in memory before cleanup. Defaults to `86400` seconds. `int`
 * `TCP_BACKLOG`: Pending TCP connection backlog for the web server. Defaults to `8192`. `int`
 * `REQUEST_MAX_SIZE`: Maximum accepted aiohttp request size. Defaults to `2147483648` bytes. `int`

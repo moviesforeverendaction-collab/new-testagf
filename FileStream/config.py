@@ -18,17 +18,15 @@ def _get_optional_int_env(name: str) -> int | None:
     return int(value)
 
 
-CPU_COUNT = cpu_count() or 4
-DEFAULT_WORKERS = max(32, CPU_COUNT * 4)
+CPU_COUNT = cpu_count() or 15
+DEFAULT_WORKERS = max(32, CPU_COUNT * 15)
 TELEGRAM_MAX_STREAM_CHUNK = 1024 * 1024
-DEFAULT_STREAM_PREFETCH = max(32, CPU_COUNT * 4)
-DEFAULT_MEDIA_SESSION_POOL_SIZE = max(8, min(CPU_COUNT, 16))
 
 class Telegram:
     API_ID = int(env.get("API_ID"))
     API_HASH = str(env.get("API_HASH"))
     BOT_TOKEN = str(env.get("BOT_TOKEN"))
-    OWNER_ID = int(env.get('OWNER_ID', '7978482443'))
+    OWNER_ID = int(env.get('OWNER_ID', ''))
     WORKERS = _get_int_env("WORKERS", DEFAULT_WORKERS)
     DATABASE_URL = str(env.get('DATABASE_URL'))
     UPDATES_CHANNEL = str(env.get('UPDATES_CHANNEL', "Telegram"))
@@ -55,8 +53,7 @@ class Server:
         64 * 1024,
         min(_get_int_env("STREAM_CHUNK_SIZE", TELEGRAM_MAX_STREAM_CHUNK), TELEGRAM_MAX_STREAM_CHUNK),
     )
-    STREAM_PREFETCH = max(16, _get_int_env("STREAM_PREFETCH", DEFAULT_STREAM_PREFETCH))
-    MEDIA_SESSION_POOL_SIZE = max(1, _get_int_env("MEDIA_SESSION_POOL_SIZE", DEFAULT_MEDIA_SESSION_POOL_SIZE))
+    STREAM_PREFETCH = max(8, _get_int_env("STREAM_PREFETCH", max(16, CPU_COUNT * 4)))
     FILE_ID_CACHE_TTL = max(30 * 60, _get_int_env("FILE_ID_CACHE_TTL", 24 * 60 * 60))
     TCP_BACKLOG = max(1024, _get_int_env("TCP_BACKLOG", 8192))
     REQUEST_MAX_SIZE = max(30_000_000, _get_int_env("REQUEST_MAX_SIZE", 2 * 1024 * 1024 * 1024))
