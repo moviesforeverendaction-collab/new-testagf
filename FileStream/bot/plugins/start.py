@@ -8,6 +8,7 @@ from FileStream.config import Telegram
 from FileStream.utils.database import Database
 from FileStream.utils.translation import LANG, BUTTON, EMOJI, MEDIA, styled_button, ButtonStyle
 from pyrogram import filters, Client
+from pyrogram.enums import ButtonStyle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.enums.parse_mode import ParseMode
 import asyncio
