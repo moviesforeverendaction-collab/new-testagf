@@ -1,28 +1,94 @@
 {
   "name": "FileStreamBot",
   "description": "High-performance Telegram File Streaming Bot with dual-account support.",
-  "keywords": ["telegram", "filestream", "railway"],
+  "keywords": [
+    "telegram",
+    "filestream",
+    "railway"
+  ],
   "env": {
-    "API_ID":            { "description": "Telegram API ID from https://my.telegram.org" },
-    "API_HASH":          { "description": "Telegram API Hash from https://my.telegram.org" },
-    "BOT_TOKEN":         { "description": "Bot token from @BotFather" },
-    "DATABASE_URL":      { "description": "MongoDB connection URI" },
-    "OWNER_ID":          { "description": "Your Telegram user ID" },
-    "FQDN":              { "description": "Your Railway domain e.g. mybot.up.railway.app" },
-    "HAS_SSL":           { "description": "true if using HTTPS", "value": "true" },
-    "NO_PORT":           { "description": "true to omit port from URLs", "value": "true" },
-    "ULOG_CHANNEL":      { "description": "Channel ID for user logs", "required": false },
-    "FLOG_CHANNEL":      { "description": "Channel ID for file logs (needed for multi-client)", "required": false },
-    "API_ID_2":          { "description": "Second account API ID (for download pool)", "required": false },
-    "API_HASH_2":        { "description": "Second account API Hash", "required": false },
-    "SESSION_STRING_2":  { "description": "Pyrogram session string for second account", "required": false },
-    "MULTI_TOKEN1":      { "description": "Extra bot token or session string for added bandwidth", "required": false },
-    "AUTH_USERS":        { "description": "Space-separated list of authorised user IDs", "required": false },
-    "FORCE_SUB_ID":      { "description": "Channel ID for forced subscription", "required": false },
-    "FORCE_UPDATES_CHANNEL": { "description": "Set true to enable forced subscription", "value": "false", "required": false },
-    "SESSION_NAME":      { "description": "MongoDB database name", "value": "FileStream", "required": false },
-    "WORKERS":           { "description": "Number of async workers", "value": "128", "required": false },
-    "STREAM_PREFETCH":   { "description": "Chunks to prefetch", "value": "16", "required": false },
-    "MEDIA_SESSION_POOL_SIZE": { "description": "DC sessions per client", "value": "8", "required": false }
+    "API_ID": {
+      "description": "Telegram API ID from https://my.telegram.org"
+    },
+    "API_HASH": {
+      "description": "Telegram API Hash from https://my.telegram.org"
+    },
+    "BOT_TOKEN": {
+      "description": "Bot token from @BotFather"
+    },
+    "DATABASE_URL": {
+      "description": "MongoDB connection URI"
+    },
+    "OWNER_ID": {
+      "description": "Your Telegram user ID"
+    },
+    "FQDN": {
+      "description": "Your Railway domain e.g. mybot.up.railway.app"
+    },
+    "HAS_SSL": {
+      "description": "true if using HTTPS",
+      "value": "true"
+    },
+    "NO_PORT": {
+      "description": "true to omit port from URLs",
+      "value": "true"
+    },
+    "ULOG_CHANNEL": {
+      "description": "Channel ID for user logs",
+      "required": false
+    },
+    "FLOG_CHANNEL": {
+      "description": "Channel ID for file logs (needed for multi-client)",
+      "required": false
+    },
+    "API_ID_2": {
+      "description": "Second account API ID (for download pool)",
+      "required": false
+    },
+    "API_HASH_2": {
+      "description": "Second account API Hash",
+      "required": false
+    },
+    "SESSION_STRING_2": {
+      "description": "Pyrogram session string for second account",
+      "required": false
+    },
+    "MULTI_TOKEN1": {
+      "description": "Extra bot token or session string for added bandwidth",
+      "required": false
+    },
+    "AUTH_USERS": {
+      "description": "Space-separated list of authorised user IDs",
+      "required": false
+    },
+    "FORCE_SUB_ID": {
+      "description": "Channel ID for forced subscription",
+      "required": false
+    },
+    "FORCE_UPDATES_CHANNEL": {
+      "description": "Set true to enable forced subscription",
+      "value": "false",
+      "required": false
+    },
+    "SESSION_NAME": {
+      "description": "MongoDB database name",
+      "value": "FileStream",
+      "required": false
+    },
+    "WORKERS": {
+      "description": "Number of async workers",
+      "value": "128",
+      "required": false
+    },
+    "STREAM_PREFETCH": {
+      "description": "Chunks to prefetch",
+      "value": "16",
+      "required": false
+    },
+    "MEDIA_SESSION_POOL_SIZE": {
+      "description": "DC sessions per client",
+      "value": "8",
+      "required": false
+    }
   }
 }

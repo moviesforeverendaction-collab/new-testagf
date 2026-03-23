@@ -8,7 +8,6 @@ from FileStream.config import Telegram
 from FileStream.utils.database import Database
 from FileStream.utils.translation import LANG, BUTTON, EMOJI, MEDIA, styled_button, ButtonStyle
 from pyrogram import filters, Client
-from pyrogram.enums import ButtonStyle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.enums.parse_mode import ParseMode
 import asyncio
@@ -83,7 +82,7 @@ async def start(bot: Client, message: Message):
             await message.reply_text(f"{EMOJI.invalid} <b>Invalid command.</b>", parse_mode=ParseMode.HTML)
 
 @FileStream.on_message(filters.private & filters.command(["about"]))
-async def start(bot, message):
+async def about_handler(bot, message):
     if not await verify_user(bot, message):
         return
     await message.reply_photo(
