@@ -1,21 +1,26 @@
 """
-ByteStreamer — pure MTProto media downloader.
+ByteStreamer — uses pyrogram's built-in client.get_file() for all media fetching.
 
-Uses client.invoke() directly — pyrogram handles all DC routing,
-connection pooling, and auth internally. No manual Auth/Session
-management means zero version-compatibility issues.
+client.get_file() internally handles:
+  - DC routing (FileMigrate — the file is on DC1, bot is on DC5, etc.)
+  - Auth export/import for foreign DCs
+  - CDN file decryption
+  - Reconnects and retries
 
-Prefetch pipeline: STREAM_PREFETCH concurrent GetFile calls in-flight
-at all times, giving maximum throughput with no stalls between chunks.
+offset parameter to get_file() is in units of 1 MB chunks (not bytes).
+limit parameter is max number of chunks to yield.
+
+Range-request mapping:
+  from_bytes  -> offset_chunks = from_bytes // CHUNK  (skip these chunks)
+              -> first_cut     = from_bytes % CHUNK   (trim start of first chunk)
+  until_bytes -> last_cut      = until_bytes % CHUNK + 1 (trim end of last chunk)
+  part_count  -> limit         (max chunks to fetch)
 """
 import asyncio
-import contextlib
 import logging
-from collections import deque
 from typing import AsyncGenerator, Dict
 
-from pyrogram import raw
-from pyrogram.file_id import FileId, FileType, ThumbnailSource
+from pyrogram.file_id import FileId
 from pyrogram.errors import (
     FileReferenceEmpty,
     FileReferenceExpired,
@@ -27,11 +32,13 @@ from .file_properties import get_file_ids
 
 FILE_REF_ERRORS = (FileReferenceEmpty, FileReferenceExpired, FileReferenceInvalid)
 
+CHUNK_SIZE = 1024 * 1024  # 1 MB — Telegram hard limit, matches get_file() internally
+
 
 class ByteStreamer:
     def __init__(self, client, role: str):
         self.client = client
-        self.role   = role          # "dl" or "stream" — logging only
+        self.role   = role
         self._file_cache: Dict[str, FileId] = {}
         asyncio.create_task(self._cache_cleaner())
 
@@ -51,67 +58,6 @@ class ByteStreamer:
             self._file_cache[db_id] = fid
         return self._file_cache[db_id]
 
-    # ── File location builder ─────────────────────────────────────────────
-
-    @staticmethod
-    def _make_location(file_id: FileId):
-        ft = file_id.file_type
-        if ft == FileType.CHAT_PHOTO:
-            from pyrogram import utils
-            if file_id.chat_id > 0:
-                peer = raw.types.InputPeerUser(
-                    user_id=file_id.chat_id,
-                    access_hash=file_id.chat_access_hash,
-                )
-            elif file_id.chat_access_hash == 0:
-                peer = raw.types.InputPeerChat(chat_id=-file_id.chat_id)
-            else:
-                peer = raw.types.InputPeerChannel(
-                    channel_id=utils.get_channel_id(file_id.chat_id),
-                    access_hash=file_id.chat_access_hash,
-                )
-            return raw.types.InputPeerPhotoFileLocation(
-                peer=peer,
-                volume_id=file_id.volume_id,
-                local_id=file_id.local_id,
-                big=file_id.thumbnail_source == ThumbnailSource.CHAT_PHOTO_BIG,
-            )
-        if ft == FileType.PHOTO:
-            return raw.types.InputPhotoFileLocation(
-                id=file_id.media_id,
-                access_hash=file_id.access_hash,
-                file_reference=file_id.file_reference,
-                thumb_size=file_id.thumbnail_size,
-            )
-        return raw.types.InputDocumentFileLocation(
-            id=file_id.media_id,
-            access_hash=file_id.access_hash,
-            file_reference=file_id.file_reference,
-            thumb_size=file_id.thumbnail_size,
-        )
-
-    # ── Single chunk fetch via client.invoke() ────────────────────────────
-
-    async def _fetch_chunk(self, location, offset: int, chunk_size: int) -> bytes:
-        """
-        Fetch one chunk using pyrogram's built-in invoke().
-        Pyrogram automatically:
-          - Routes to the correct DC
-          - Manages the connection/session
-          - Handles reconnects
-        No manual Auth or Session needed.
-        """
-        result = await self.client.invoke(
-            raw.functions.upload.GetFile(
-                location=location,
-                offset=offset,
-                limit=chunk_size,
-            )
-        )
-        if isinstance(result, raw.types.upload.File):
-            return result.bytes
-        return b""
-
     # ── Core streaming generator ──────────────────────────────────────────
 
     async def yield_file(
@@ -119,93 +65,54 @@ class ByteStreamer:
         db_id: str,
         multi_clients: dict,
         file_id: FileId,
-        offset: int,
-        first_part_cut: int,
-        last_part_cut: int,
-        part_count: int,
-        chunk_size: int,
+        offset: int,           # byte offset (from range request, aligned to chunk)
+        first_part_cut: int,   # bytes to skip at start of first chunk
+        last_part_cut: int,    # bytes to keep from last chunk
+        part_count: int,       # total chunks to stream
+        chunk_size: int,       # always CHUNK_SIZE (1 MB)
     ) -> AsyncGenerator[bytes, None]:
-        retries   = Server.STREAM_MAX_RETRIES
-        yielded   = 0
-        cur_off   = offset
-        cur_cut   = first_part_cut
-        remaining = part_count
+        retries = Server.STREAM_MAX_RETRIES
+        # convert byte offset → chunk offset for get_file()
+        offset_chunks = offset // CHUNK_SIZE
 
-        while remaining > 0:
-            location = self._make_location(file_id)
-            pending: deque[asyncio.Task] = deque()
-            next_off  = cur_off
-            scheduled = 0
-            part      = 1
-
+        while True:
             try:
-                # Pre-fill async pipeline with STREAM_PREFETCH tasks
-                prefill = min(Server.STREAM_PREFETCH, remaining)
-                while scheduled < prefill:
-                    pending.append(asyncio.create_task(
-                        self._fetch_chunk(location, next_off, chunk_size)
-                    ))
-                    next_off  += chunk_size
-                    scheduled += 1
-
-                # Drain pipeline, keep it full
-                while part <= remaining and pending:
-                    chunk = await pending.popleft()
-
-                    # Schedule next chunk immediately to keep pipeline full
-                    if scheduled < remaining:
-                        pending.append(asyncio.create_task(
-                            self._fetch_chunk(location, next_off, chunk_size)
-                        ))
-                        next_off  += chunk_size
-                        scheduled += 1
-
+                part = 0
+                async for chunk in self.client.get_file(
+                    file_id,
+                    file_size=file_id.file_size,
+                    offset=offset_chunks,
+                    limit=part_count,
+                ):
+                    part += 1
                     if not chunk:
                         break
 
-                    if remaining == 1:
-                        yield chunk[cur_cut:last_part_cut]
+                    # Apply byte-level cuts on first and last chunks
+                    if part_count == 1:
+                        yield chunk[first_part_cut:last_part_cut]
                     elif part == 1:
-                        yield chunk[cur_cut:]
-                    elif part == remaining:
+                        yield chunk[first_part_cut:]
+                    elif part == part_count:
                         yield chunk[:last_part_cut]
                     else:
                         yield chunk
-
-                    part    += 1
-                    yielded += 1
-
                 break  # clean exit
 
             except FILE_REF_ERRORS:
                 if retries <= 1:
-                    logging.error("[%s] File reference refresh exhausted for %s", self.role, db_id)
+                    logging.error("[%s] File reference exhausted for %s", self.role, db_id)
                     raise
                 logging.warning("[%s] File reference expired for %s — refreshing", self.role, db_id)
-                file_id   = await self.get_file_properties(db_id, multi_clients, force_refresh=True)
-                cur_off  += (part - 1) * chunk_size
-                remaining -= part - 1
-                cur_cut    = 0 if yielded else cur_cut
-                retries   -= 1
+                file_id = await self.get_file_properties(db_id, multi_clients, force_refresh=True)
+                retries -= 1
 
-            except (TimeoutError, OSError, ConnectionError, AttributeError):
+            except Exception as e:
                 if retries <= 1:
-                    logging.error("[%s] Stream failed after all retries for %s", self.role, db_id)
+                    logging.error("[%s] Stream failed for %s: %s", self.role, db_id, e)
                     raise
-                logging.warning("[%s] Transient error for %s — retrying", self.role, db_id)
-                cur_off  += (part - 1) * chunk_size
-                remaining -= part - 1
-                cur_cut    = 0 if yielded else cur_cut
-                retries   -= 1
-
-            finally:
-                # Cancel any still-pending prefetch tasks
-                while pending:
-                    t = pending.popleft()
-                    if not t.done():
-                        t.cancel()
-                    with contextlib.suppress(asyncio.CancelledError, Exception):
-                        await t
+                logging.warning("[%s] Error for %s (%s) — retrying", self.role, db_id, e)
+                retries -= 1
 
     async def _cache_cleaner(self) -> None:
         while True:
