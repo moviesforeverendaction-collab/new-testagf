@@ -1,1 +1,2 @@
-from FileStream.exceptions import FIleNotFound, InvalidHash
+class InvalidHash(Exception):
+    message = "Invalid hash or access link."

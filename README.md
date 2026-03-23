@@ -1,206 +1,89 @@
-<h1 align="center">FileStreamBot</h1>
-<p align="center">
-  <a href="https://github.com/Avipatilpro/FileStreamBot">
-    <img src="https://graph.org/file/80d1f94e81bbc1acadb36.jpg" alt="Cover Image" width="550">
-  </a>
-</p>  
-  <p align="center">
-   </strong></a>
-    <br><b>
-    <a href="https://github.com/Avipatilpro/FileStreamBot/issues">Report a Bug</a>
-    |
-    <a href="https://github.com/Avipatilpro/FileStreamBot/issues">Request Feature</a></b>
-  </p>
+# FileStream v2 — Railway Edition
 
+High-performance Telegram media streaming bot with **dual-account support**, optimised for Railway (32 vCPU / 32 GB RAM).
 
+## Features
 
-### 🍁 About :
+| Feature | Detail |
+|---|---|
+| Dual-account pools | Account 1 for streaming, Account 2 for downloading |
+| Session pool per DC | 8 parallel DC connections per client (configurable) |
+| Prefetch pipeline | 16-chunk async lookahead (no stall between chunks) |
+| Range requests | Full seek/resume support (206 Partial Content) |
+| File-ref auto-refresh | Transparent retry on expired Telegram file references |
+| Multi-token support | Add unlimited extra bots via `MULTI_TOKEN1`, `MULTI_TOKEN2`… |
+| Railway-native | `SO_REUSEPORT`, high TCP backlog, `/status` healthcheck |
 
-<p align="center">
-    <a href="https://github.com/Avipatilpro/FileStreamBot">
-        <img src="https://i.ibb.co/ZJzJ9Hq/link-3x.png" height="100" width="100" alt="FileStreamBot Logo">
-    </a>
-</p>
-<p align='center'>
-  This bot provides stream links for Telegram files without the necessity of waiting for the download to complete, offering the ability to store files.
-</p>
+## Environment Variables
 
+Copy `.env.example` → `.env` and fill in your values.
 
-### ♢ How to Deploy :
+### Required
 
-<i>Either you could locally host, VPS, or deploy on [Heroku](https://heroku.com)</i>
+| Variable | Description |
+|---|---|
+| `API_ID` | Telegram API ID (my.telegram.org) |
+| `API_HASH` | Telegram API hash |
+| `BOT_TOKEN` | Bot token from @BotFather |
+| `DATABASE_URL` | MongoDB connection string |
+| `OWNER_ID` | Your Telegram user ID |
 
-#### ♢ Click on This Drop-down and get more details
+### Dual-account (recommended for speed)
 
-<br>
-<details>
-  <summary><b>Deploy on Heroku (Paid)  :</b></summary>
+| Variable | Description |
+|---|---|
+| `API_ID_2` | Second account's API ID |
+| `API_HASH_2` | Second account's API hash |
+| `SESSION_STRING_2` | Pyrogram session string for second account |
 
-- Fork This Repo
-- Click on Deploy Easily
-- Press the below button to Fast deploy on Heroku
-
-
-   [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy)
-- Go to <a href="#mandatory-vars">variables tab</a> for more info on setting up environmental variables. </details>
-
-<details>
-  <summary><b>Deploy Locally :</b></summary>
-<br>
-
-```sh
-git clone https://github.com/avipatilpro/FileStreamBot
-cd FileStreamBot
-python3 -m venv ./venv
-. ./venv/bin/activate
-pip install -r requirements.txt
-python3 -m FileStream
+Generate a session string:
+```bash
+pip install pyrofork
+python -c "
+from pyrogram import Client
+with Client('gen', api_id=API_ID_2, api_hash=API_HASH_2) as c:
+    print(c.export_session_string())
+"
 ```
 
-- To stop the whole bot,
- do <kbd>CTRL</kbd>+<kbd>C</kbd>
+### Performance tuning (defaults are optimal for Railway 32 vCPU)
 
-- If you want to run this bot 24/7 on the VPS, follow these steps.
-```sh
-sudo apt install tmux -y
-tmux
-python3 -m FileStream
+| Variable | Default | Description |
+|---|---|---|
+| `STREAM_PREFETCH` | 16 | Chunks to prefetch ahead |
+| `MEDIA_SESSION_POOL_SIZE` | 8 | DC sessions per client |
+| `WORKERS` | 128 | Pyrogram async workers |
+| `STREAM_MAX_RETRIES` | 5 | Retry count on errors |
+
+### Hosting
+
+| Variable | Description |
+|---|---|
+| `FQDN` | Your Railway domain, e.g. `mybot.up.railway.app` |
+| `HAS_SSL` | `true` if using HTTPS |
+| `NO_PORT` | `true` to omit port from URLs |
+
+## Deploy to Railway
+
+1. Fork / upload this repo
+2. Add all env variables in Railway dashboard
+3. Railway will auto-detect `Dockerfile` and deploy
+4. The `/status` endpoint is used as healthcheck
+
+## Architecture
+
 ```
-- now you can close the VPS and the bot will run on it.
-
-  </details>
-
-<details>
-  <summary><b>Deploy using Docker :</b></summary>
-<br>
-* Clone the repository:
-```sh
-git clone https://github.com/avipatilpro/FileStreamBot
-cd FileStreamBot
+User request (/dl/...)
+       │
+       ▼
+stream_routes.py  ─── pick least-loaded client from dl_clients pool
+       │
+       ▼
+ByteStreamer.yield_file()
+  ├── Session pool for this DC (8 sessions)
+  ├── Prefetch pipeline (16 chunks ahead)
+  └── Auto-retry on file reference expiry
+       │
+       ▼
+aiohttp streaming response (206 Partial Content)
 ```
-* Build own Docker image:
-```sh
-docker build -t file-stream .
-```
-
-* Create ENV and Start Container:
-```sh
-docker run -d --restart unless-stopped --name fsb \
--v /PATH/TO/.env:/app/.env \
--p 8000:8000 \
-file-stream
-```
-- if you need to change the variables in .env file after your bot was already started, all you need to do is restart the container for the bot settings to get updated:
-```sh
-docker restart fsb
-```
-
-  </details>
-
-<details>
-  <summary><b>Setting up things :</b></summary>
-
-
-If you're on Heroku, just add these in the Environmental Variables
-or if you're Locally hosting, create a file named `.env` in the root directory and add all the variables there.
-An example of `.env` file:
-
-```sh
-API_ID = 789456
-API_HASH = ysx275f9638x896g43sfzx65
-BOT_TOKEN = 12345678:your_bot_token
-ULOG_CHANNEL = -100123456789
-FLOG_CHANNEL = -100123456789
-DATABASE_URL = mongodb://admin:pass@192.168.27.1
-FQDN = 192.168.27.1
-HAS_SSL = False
-MULTI_TOKEN1 = 12345678:bot_token_multi_client_1
-MULTI_TOKEN2 = 12345678:bot_token_multi_client_2
-OWNER_ID = 987456321
-PORT = 8080
-```
-</details>
-
-
-<details>
-  <summary><b>Vars and Details :</b></summary>
-
-#### 📝 Mandatory Vars :
-
-* `API_ID`: API ID of your Telegram account, can be obtained from [My Telegram](https://my.telegram.org). `int`
-* `API_HASH`: API hash of your Telegram account, can be obtained from [My Telegram](https://my.telegram.org). `str`
-* `OWNER_ID`: Your Telegram User ID, Send `/id` to [@missrose_bot](https://telegram.dog/MissRose_bot) to get Your Telegram User ID `int`
-* `BOT_TOKEN`: Telegram API token of your bot, can be obtained from [@BotFather](https://t.me/BotFather). `str`
-* `FLOG_CHANNEL`: ID of the channel where bot will store all Files from users `int`.
-* `ULOG_CHANNEL`: ID of the channel where bot will send logs of New Users`int`.
-* `BOT_WORKERS`: Number of updates bot should process from Telegram at once, by default to 10 updates. `int`
-* `DATABASE_URL`: MongoDB URI for saving User Data and Files List created by user. `str`
-* `FQDN`: A Fully Qualified Domain Name if present without http/s. Defaults to `BIND_ADDRESS`. `str`
-
-#### 🗼 MultiClient Vars :
-* `MULTI_TOKEN1`: Add your first bot token or session strings here. `str`
-* `MULTI_TOKEN2`: Add your second bot token or session strings here. `str`
-
-#### 🪐 Optional Vars :
-
-* `UPDATES_CHANNEL`: Channel Username without `@` to set channel as Update Channel `str`
-* `FORCE_SUB_ID`: Force Sub Channel ID, if you want to use Force Sub. start with `-100` `int
-* `FORCE_SUB`: Set to True, so every user have to Join update channel to use the bot. `bool`
-* `AUTH_USERS`: Put authorized user IDs to use bot, separated by <kbd>Space</kbd>. `int`
-* `SLEEP_THRESHOLD`: Set global flood wait threshold, auto-retry requests under 60s. `int`
-* `SESSION_NAME`: Name for the Database created on your MongoDB. Defaults to `FileStream`. `str`
-* `FILE_PIC`: To set Image at `/files` command. Defaults to pre-set image. `str`
-* `START_PIC`: To set Image at `/start` command. Defaults to pre-set image. `str`
-* `VERIFY_PIC`: To set Image at Force Sub Verification. Defaults to pre-set image. `str`
-* `WORKERS`: Number of maximum concurrent workers for handling incoming updates. Defaults to `max(32, min(CPU_COUNT * 2, 128))`. `int`
-* `STREAM_CHUNK_SIZE`: Telegram streaming chunk size in bytes. The code clamps it to Telegram's `1 MiB` protocol limit, so `1048576` is the maximum effective value. `int`
-* `STREAM_PREFETCH`: Number of sequential Telegram chunks to keep queued per request. Defaults to `min(max(CPU_COUNT // 4, 4), 8)` for stability on a single bot, and effective parallelism is capped by `MEDIA_SESSION_POOL_SIZE`. `int`
-* `MEDIA_SESSION_POOL_SIZE`: Number of Telegram media sessions to keep per DC for streaming. Defaults to `min(max(CPU_COUNT // 8, 2), 4)`. `int`
-* `STREAM_MAX_RETRIES`: Number of retry attempts after expired file references or transient stream errors. Defaults to `2`. `int`
-* `FILE_ID_CACHE_TTL`: How long cached file metadata stays in memory before cleanup. Defaults to `86400` seconds. `int`
-* `TCP_BACKLOG`: Pending TCP connection backlog for the web server. Defaults to `8192`. `int`
-* `REQUEST_MAX_SIZE`: Maximum accepted aiohttp request size. Defaults to `2147483648` bytes. `int`
-* `PORT`: The port that you want your webapp to be listened to. Defaults to `8080`. `int`
-* `BIND_ADDRESS`: Your server bind adress. Defauls to `0.0.0.0`. `int`
-* `MODE`: Should be set to `secondary` if you only want to use the server for serving files. `str`
-* `NO_PORT`: (True/False) Set PORT to 80 or 443 hide port display; ignore if on Heroku. Defaults to `False`.
-* `HAS_SSL`: (can be either `True` or `False`) If you want the generated links in https format. Defaults to `False`. 
-
-For high-throughput streaming, the biggest real scaler is still adding `MULTI_TOKEN*` bot tokens or session strings so the server can spread Telegram fetches across more clients.
-
-</details>
-
-<details>
-  <summary><b>How to Use :</b></summary>
-
-:warning: **Before using the  bot, don't forget to add the bot to the `LOG_CHANNEL` as an Admin**
- 
-#### ‍☠️ Bot Commands :
-
-```sh
-/start      : To check the bot is alive or not.
-/help       : To Get Help Message.
-/about      : To check About the Bot.
-/files      : To Get All Files List of User.
-/del        : To Delete Files from DB with FileID. [ADMIN]
-/ban        : To Ban Any Channel or User to use bot. [ADMIN]
-/unban      : To Unban Any Channel or User to use bot. [ADMIN]
-/status     : To Get Bot Status and Total Users. [ADMIN]
-/broadcast  : To Broadcast any message to all users of bot. [ADMIN]
-```
-
-#### 🍟 Channel Support :
-
-*Bot also Supported with Channels. Just add bot Channel as Admin. If any new file comes in Channel it will edit it with **Get Download Link** Button.*
-
-</details>
-
-### ❤️ Thanks To :
-
-- [**Me**](https://github.com/AvishkarPatil) : Owner of This FileStreamBot
-- [**Deekshith SH**](https://github.com/DeekshithSH) : for some modules.
-- [**EverythingSuckz**](https://github.com/EverythingSuckz) : for his [FileStreamBot](https://github.com/EverythingSuckz/FileStreamBot)
-- [**Biisal**](https://github.com/biisal) : for Stream Page UI
-
----
-<h4 align='center'>© 2024 Aνιѕнкαя Pαтιℓ</h4>

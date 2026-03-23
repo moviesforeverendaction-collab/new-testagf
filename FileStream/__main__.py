@@ -1,90 +1,105 @@
+"""
+FileStream v2 — entry point.
+
+One bot  (BOT_TOKEN) handles commands.
+Two bare MTProto clients handle media:
+  dl_client  (Account 1) → /dl
+  str_client (Account 2) → /stream  (video src in play.html)
+"""
 import sys
 import asyncio
 import contextlib
 import logging
+import logging.handlers
 import traceback
-import logging.handlers as handlers
-from FileStream.config import Telegram, Server
+
 from aiohttp import web
 from pyrogram import idle
 
 from FileStream.bot import FileStream
-from FileStream.server import web_server
 from FileStream.bot.clients import initialize_clients
+from FileStream.config import Telegram, Server
+from FileStream.server import web_server
 
 logging.basicConfig(
     level=logging.INFO,
     datefmt="%d/%m/%Y %H:%M:%S",
-    format='[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(stream=sys.stdout),
-              handlers.RotatingFileHandler("streambot.log", mode="a", maxBytes=104857600, backupCount=2, encoding="utf-8")],)
+    format="[%(asctime)s] %(levelname)s %(name)s — %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.handlers.RotatingFileHandler(
+            "streambot.log", mode="a",
+            maxBytes=50 * 1024 * 1024, backupCount=3, encoding="utf-8",
+        ),
+    ],
+)
+for _lib in ("aiohttp", "aiohttp.web", "pyrogram", "motor"):
+    logging.getLogger(_lib).setLevel(logging.WARNING)
 
-logging.getLogger("aiohttp").setLevel(logging.ERROR)
-logging.getLogger("pyrogram").setLevel(logging.ERROR)
-logging.getLogger("aiohttp.web").setLevel(logging.ERROR)
+_runner = web.AppRunner(web_server(), access_log=None)
 
-server = web.AppRunner(web_server(), access_log=None)
-
-loop = asyncio.get_event_loop()
 
 async def start_services():
+    mode = "Secondary" if Telegram.SECONDARY else "Primary"
     print()
-    if Telegram.SECONDARY:
-        print("------------------ Starting as Secondary Server ------------------")
-    else:
-        print("------------------- Starting as Primary Server -------------------")
-    print()
-    print("-------------------- Initializing Telegram Bot --------------------")
+    print("═" * 60)
+    print(f"  FileStream v2  │  {mode} mode")
+    print("═" * 60)
 
-
+    print("  [1/3] Starting bot…")
     await FileStream.start()
-    bot_info = await FileStream.get_me()
-    FileStream.id = bot_info.id
-    FileStream.username = bot_info.username
-    FileStream.fname=bot_info.first_name
-    print("------------------------------ DONE ------------------------------")
-    print()
-    print("---------------------- Initializing Clients ----------------------")
+    me = await FileStream.get_me()
+    FileStream.id       = me.id
+    FileStream.username = me.username
+    FileStream.fname    = me.first_name
+    print(f"        Bot: @{me.username}  (DC {me.dc_id})")
+
+    print("  [2/3] Starting MTProto clients…")
     await initialize_clients()
-    print("------------------------------ DONE ------------------------------")
-    print()
-    print("--------------------- Initializing Web Server ---------------------")
-    await server.setup()
+
+    print("  [3/3] Starting web server…")
+    await _runner.setup()
     await web.TCPSite(
-        server,
+        _runner,
         Server.BIND_ADDRESS,
         Server.PORT,
         backlog=Server.TCP_BACKLOG,
+        reuse_address=True,
+        reuse_port=True,
     ).start()
-    print("------------------------------ DONE ------------------------------")
+
     print()
-    print("------------------------- Service Started -------------------------")
-    print("                        bot =>> {}".format(bot_info.first_name))
-    if bot_info.dc_id:
-        print("                        DC ID =>> {}".format(str(bot_info.dc_id)))
-    print("                    Workers =>> {}".format(Telegram.WORKERS))
-    print("               Stream Chunk =>> {} bytes".format(Server.STREAM_CHUNK_SIZE))
-    print("            Stream Prefetch =>> {}".format(Server.STREAM_PREFETCH))
-    print("       Media Sessions/DC =>> {}".format(Server.MEDIA_SESSION_POOL_SIZE))
-    print("         Stream Retries =>> {}".format(Server.STREAM_MAX_RETRIES))
-    print("              Cache TTL =>> {} sec".format(Server.FILE_ID_CACHE_TTL))
-    print(" URL =>> {}".format(Server.URL))
-    print("------------------------------------------------------------------")
+    print("═" * 60)
+    print(f"  URL              : {Server.URL}")
+    print(f"  /dl   → Account 1 MTProto  (downloads)")
+    print(f"  /stream → Account 2 MTProto  (streaming)")
+    print(f"  Workers          : {Telegram.WORKERS}")
+    print(f"  Chunk size       : {Server.STREAM_CHUNK_SIZE // 1024} KB")
+    print(f"  Prefetch         : {Server.STREAM_PREFETCH} chunks")
+    print(f"  DC sessions/pool : {Server.MEDIA_SESSION_POOL_SIZE}")
+    print(f"  TCP backlog      : {Server.TCP_BACKLOG}")
+    print("═" * 60)
+    print()
+
     await idle()
 
+
 async def cleanup():
-    await server.cleanup()
-    with contextlib.suppress(ConnectionError):
+    print("Shutting down…")
+    await _runner.cleanup()
+    with contextlib.suppress(Exception):
         await FileStream.stop()
 
+
 if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(start_services())
     except KeyboardInterrupt:
         pass
-    except Exception as err:
-        logging.error(traceback.format_exc())
+    except Exception:
+        logging.error("Fatal:\n%s", traceback.format_exc())
     finally:
         loop.run_until_complete(cleanup())
         loop.stop()
-        print("------------------------ Stopped Services ------------------------")
+        print("Stopped.")
